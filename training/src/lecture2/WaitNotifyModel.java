@@ -1,16 +1,18 @@
 package lecture2;
 
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.LinkedList;
+import java.util.Queue;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class BlockingQueueModel implements Model {
+public class WaitNotifyModel implements Model {
 
-	private final BlockingQueue<Task> queue;
+	private final Object BUFFER_LOCK = new Object();
+	private final Queue<Task> buffer = new LinkedList<>();
+	private final int cap;
 	private final AtomicInteger increTaskNo = new AtomicInteger(0);
 
-	public BlockingQueueModel(int cap) {
-		this.queue = new LinkedBlockingQueue<>(cap);
+	public WaitNotifyModel(int cap) {
+		this.cap = cap;
 	}
 
 	@Override
@@ -26,9 +28,17 @@ public class BlockingQueueModel implements Model {
 	private class CustomerImpl extends AbstractConsumer implements Consumer, Runnable {
 		@Override
 		public void consume() throws InterruptedException {
-			Task task = queue.take();
+
+			synchronized (BUFFER_LOCK) {
+				while (buffer.size() == 0) {
+					BUFFER_LOCK.wait();
+				}
+			}
+			Task task = buffer.poll();
+			assert task != null;
 			Thread.sleep(500 + (long) (Math.random() * 500));
 			System.out.println("consume: " + task.no);
+			BUFFER_LOCK.notifyAll();
 		}
 	}
 
@@ -37,9 +47,15 @@ public class BlockingQueueModel implements Model {
 		@Override
 		public void produce() throws InterruptedException {
 			Thread.sleep((long) (Math.random() * 1000));
-			Task task = new Task(increTaskNo.getAndIncrement());
-			queue.put(task);
-			System.out.println("produce: " + task.no);
+			synchronized (BUFFER_LOCK) {
+				while (buffer.size() == cap) {
+					BUFFER_LOCK.wait();
+				}
+				Task task = new Task(increTaskNo.getAndIncrement());
+				buffer.offer(task);
+				System.out.println("produce: " + task.no);
+				BUFFER_LOCK.notifyAll();
+			}
 		}
 
 	}
